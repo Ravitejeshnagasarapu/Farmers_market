@@ -1,3 +1,9 @@
+console.log('script.js loaded');
+
+// Set API base URL (true for local, false for production)
+const IS_LOCAL = true; // Change to false for Render deployment
+const API_BASE_URL = IS_LOCAL ? 'http://localhost:3000' : 'https://farmers-market.onrender.com';
+
 // DOM Elements
 const menuToggle = document.querySelector('.menu-toggle');
 const navLinks = document.querySelector('.nav-links');
@@ -15,16 +21,16 @@ const cartTotalAmount = document.querySelector('.cart-total-amount');
 const cartCount = document.querySelector('.cart-count');
 const continueShoppingBtn = document.querySelector('.continue-shopping');
 const checkoutBtn = document.querySelector('.checkout-btn');
-const loginNavBtn = document.querySelector('.login-nav-btn');
-const registerNavBtn = document.querySelector('.register-nav-btn');
+const loginNavBtn = document.querySelector('.auth-btn.login-nav-btn');
+const registerNavBtn = document.querySelector('.auth-btn.register-nav-btn');
 const authSection = document.getElementById('auth-section');
-const loginContainer = document.querySelector('.login-container');
-const registerContainer = document.querySelector('.register-container');
+const loginContainer = document.querySelector('.form-container.login-container');
+const registerContainer = document.querySelector('.form-container.register-container');
 const registerLink = document.querySelector('.register-link');
 const loginLink = document.querySelector('.login-link');
 const loginForm = document.querySelector('.login-form');
 const registerForm = document.querySelector('.register-form');
-const logoutBtn = document.querySelector('.logout-btn');
+const logoutBtn = document.querySelector('.auth-btn.logout-btn');
 const userInfo = document.querySelector('.user-info');
 const usernameDisplay = document.querySelector('.username');
 const userRoleDisplay = document.querySelector('.user-role');
@@ -35,7 +41,7 @@ const transactionList = document.querySelector('.transaction-list');
 const contactForm = document.querySelector('.contact-form');
 const newsletterForm = document.querySelector('.newsletter-form');
 
-// New: Refresh button
+// Refresh button
 const refreshProductsBtn = document.createElement('button');
 refreshProductsBtn.className = 'btn btn-secondary refresh-products-btn';
 refreshProductsBtn.textContent = 'Refresh Products';
@@ -44,11 +50,12 @@ refreshProductsBtn.style.marginLeft = '10px';
 // State
 let cart = [];
 let currentFilter = 'all';
-const INR_RATE = 83; // USD to INR conversion rate
+const INR_RATE = 83;
 let productPollingInterval = null;
 
 // Initialize
 function init() {
+    console.log('Initializing app');
     checkUserLogin();
     fetchProducts('all', '');
     setupEventListeners();
@@ -57,82 +64,227 @@ function init() {
 
 // Set up event listeners
 function setupEventListeners() {
-    menuToggle.addEventListener('click', () => {
-        navLinks.classList.toggle('active');
-    });
+    console.log('Setting up event listeners');
 
-    themeToggle.addEventListener('click', toggleTheme);
+    // Menu Toggle
+    if (!menuToggle) {
+        console.error('menuToggle not found (.menu-toggle)');
+    } else {
+        console.log('menuToggle found');
+        menuToggle.addEventListener('click', () => {
+            console.log('Menu toggle clicked');
+            if (navLinks) navLinks.classList.toggle('active');
+            else console.error('navLinks not found (.nav-links)');
+        });
+    }
 
-    filterButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            currentFilter = button.getAttribute('data-filter');
-            filterButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
+    // Theme Toggle
+    if (!themeToggle) {
+        console.error('themeToggle not found (.theme-toggle)');
+    } else {
+        console.log('themeToggle found');
+        themeToggle.addEventListener('click', () => {
+            console.log('Theme toggle clicked');
+            toggleTheme();
+        });
+    }
+
+    // Login Button
+    if (!loginNavBtn) {
+        console.error('loginNavBtn not found (.auth-btn.login-nav-btn)');
+    } else {
+        console.log('loginNavBtn found');
+        loginNavBtn.addEventListener('click', () => {
+            console.log('Login button clicked');
+            hideAllSections();
+            if (authSection) authSection.style.display = 'block';
+            if (loginContainer) loginContainer.style.display = 'block';
+            if (registerContainer) registerContainer.style.display = 'none';
+        });
+    }
+
+    // Register Button
+    if (!registerNavBtn) {
+        console.error('registerNavBtn not found (.auth-btn.register-nav-btn)');
+    } else {
+        console.log('registerNavBtn found');
+        registerNavBtn.addEventListener('click', () => {
+            console.log('Register button clicked');
+            hideAllSections();
+            if (authSection) authSection.style.display = 'block';
+            if (loginContainer) loginContainer.style.display = 'none';
+            if (registerContainer) registerContainer.style.display = 'block';
+        });
+    }
+
+    // Cart Toggle
+    if (!cartToggle) {
+        console.error('cartToggle not found (.cart-toggle)');
+    } else {
+        console.log('cartToggle found');
+        cartToggle.addEventListener('click', () => {
+            console.log('Cart toggle clicked');
+            hideAllSections();
+            if (cartSection) cartSection.style.display = 'block';
+            updateCartDisplay();
+        });
+    }
+
+    // Transactions Toggle
+    if (!transactionsToggle) {
+        console.error('transactionsToggle not found (.transactions-toggle)');
+    } else {
+        console.log('transactionsToggle found');
+        transactionsToggle.addEventListener('click', () => {
+            console.log('Transactions toggle clicked');
+            hideAllSections();
+            if (transactionsSection) transactionsSection.style.display = 'block';
+            fetchTransactions();
+        });
+    }
+
+    // Filter Buttons
+    if (!filterButtons.length) console.error('filterButtons not found (.filter-btn)');
+    else {
+        console.log('filterButtons found:', filterButtons.length);
+        filterButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                console.log(`Filter button clicked: ${button.getAttribute('data-filter')}`);
+                currentFilter = button.getAttribute('data-filter');
+                filterButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                fetchProducts(currentFilter, productSearch ? productSearch.value : '');
+            });
+        });
+    }
+
+    // Product Search
+    if (!productSearch) console.error('productSearch not found (.product-search)');
+    else {
+        console.log('productSearch found');
+        productSearch.addEventListener('input', () => {
+            console.log('Product search input:', productSearch.value);
             fetchProducts(currentFilter, productSearch.value);
         });
-    });
+    }
 
-    productSearch.addEventListener('input', () => {
-        fetchProducts(currentFilter, productSearch.value);
-    });
+    // Continue Shopping
+    if (!continueShoppingBtn) console.error('continueShoppingBtn not found (.continue-shopping)');
+    else {
+        console.log('continueShoppingBtn found');
+        continueShoppingBtn.addEventListener('click', () => {
+            console.log('Continue shopping clicked');
+            hideAllSections();
+            document.getElementById('products').scrollIntoView();
+        });
+    }
 
-    cartToggle.addEventListener('click', () => {
-        hideAllSections();
-        cartSection.style.display = 'block';
-        updateCartDisplay();
-    });
+    // Checkout
+    if (!checkoutBtn) console.error('checkoutBtn not found (.checkout-btn)');
+    else {
+        console.log('checkoutBtn found');
+        checkoutBtn.addEventListener('click', () => {
+            console.log('Checkout button clicked');
+            processCheckout();
+        });
+    }
 
-    transactionsToggle.addEventListener('click', () => {
-        hideAllSections();
-        transactionsSection.style.display = 'block';
-        fetchTransactions();
-    });
+    // Register Link
+    if (!registerLink) console.error('registerLink not found (.register-link)');
+    else {
+        console.log('registerLink found');
+        registerLink.addEventListener('click', (e) => {
+            console.log('Register link clicked');
+            e.preventDefault();
+            if (loginContainer) loginContainer.style.display = 'none';
+            if (registerContainer) registerContainer.style.display = 'block';
+        });
+    }
 
-    continueShoppingBtn.addEventListener('click', () => {
-        hideAllSections();
-        document.getElementById('products').scrollIntoView();
-    });
+    // Login Link
+    if (!loginLink) console.error('loginLink not found (.login-link)');
+    else {
+        console.log('loginLink found');
+        loginLink.addEventListener('click', (e) => {
+            console.log('Login link clicked');
+            e.preventDefault();
+            if (loginContainer) loginContainer.style.display = 'block';
+            if (registerContainer) registerContainer.style.display = 'none';
+        });
+    }
 
-    checkoutBtn.addEventListener('click', processCheckout);
+    // Login Form
+    if (!loginForm) console.error('loginForm not found (.login-form)');
+    else {
+        console.log('loginForm found');
+        loginForm.addEventListener('submit', (e) => {
+            console.log('Login form submitted');
+            handleLogin(e);
+        });
+    }
 
-    loginNavBtn.addEventListener('click', () => {
-        hideAllSections();
-        authSection.style.display = 'block';
-        loginContainer.style.display = 'block';
-        registerContainer.style.display = 'none';
-    });
+    // Register Form
+    if (!registerForm) console.error('registerForm not found (.register-form)');
+    else {
+        console.log('registerForm found');
+        registerForm.addEventListener('submit', (e) => {
+            console.log('Register form submitted');
+            handleRegister(e);
+        });
+    }
 
-    registerNavBtn.addEventListener('click', () => {
-        hideAllSections();
-        authSection.style.display = 'block';
-        loginContainer.style.display = 'none';
-        registerContainer.style.display = 'block';
-    });
+    // Logout Button
+    if (!logoutBtn) console.error('logoutBtn not found (.auth-btn.logout-btn)');
+    else {
+        console.log('logoutBtn found');
+        logoutBtn.addEventListener('click', () => {
+            console.log('Logout button clicked');
+            handleLogout();
+        });
+    }
 
-    registerLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        loginContainer.style.display = 'none';
-        registerContainer.style.display = 'block';
-    });
+    // Add Product Form
+    if (!addProductForm) console.error('addProductForm not found (.add-product-form)');
+    else {
+        console.log('addProductForm found');
+        addProductForm.addEventListener('submit', (e) => {
+            console.log('Add product form submitted');
+            handleAddProduct(e);
+        });
+    }
 
-    loginLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        loginContainer.style.display = 'block';
-        registerContainer.style.display = 'none';
-    });
+    // Contact Form
+    if (!contactForm) console.error('contactForm not found (.contact-form)');
+    else {
+        console.log('contactForm found');
+        contactForm.addEventListener('submit', (e) => {
+            console.log('Contact form submitted');
+            handleContactForm(e);
+        });
+    }
 
-    loginForm.addEventListener('submit', handleLogin);
-    registerForm.addEventListener('submit', handleRegister);
-    logoutBtn.addEventListener('click', handleLogout);
-    addProductForm.addEventListener('submit', handleAddProduct);
-    contactForm.addEventListener('submit', handleContactForm);
-    newsletterForm.addEventListener('submit', handleNewsletterSubscription);
+    // Newsletter Form
+    if (!newsletterForm) console.error('newsletterForm not found (.newsletter-form)');
+    else {
+        console.log('newsletterForm found');
+        newsletterForm.addEventListener('submit', (e) => {
+            console.log('Newsletter form submitted');
+            handleNewsletterSubscription(e);
+        });
+    }
 
-    refreshProductsBtn.addEventListener('click', () => {
-        fetchProducts(currentFilter, productSearch.value);
-        showStatusMessage('Products refreshed');
-    });
+    // Refresh Products
+    if (!refreshProductsBtn) console.error('refreshProductsBtn not found');
+    else {
+        console.log('refreshProductsBtn found');
+        refreshProductsBtn.addEventListener('click', () => {
+            console.log('Refresh products clicked');
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
+            showStatusMessage('Products refreshed');
+        });
+    }
 
+    // Outside Click
     document.addEventListener('click', (e) => {
         if (
             !e.target.closest('.cart-section') &&
@@ -140,39 +292,49 @@ function setupEventListeners() {
             !e.target.closest('.transactions-section') &&
             !e.target.closest('.transactions-toggle') &&
             !e.target.closest('.auth-section') &&
-            !e.target.closest('.login-nav-btn') &&
-            !e.target.closest('.register-nav-btn') &&
+            !e.target.closest('.auth-btn.login-nav-btn') &&
+            !e.target.closest('.auth-btn.register-nav-btn') &&
             !e.target.closest('.add-product-section') &&
             !e.target.closest('.nav-links')
         ) {
+            console.log('Outside click detected, hiding sections');
             hideAllSections();
-            navLinks.classList.remove('active');
+            if (navLinks) navLinks.classList.remove('active');
         }
     });
 
+    // Nav Items
     document.querySelectorAll('.nav-item').forEach(item => {
+        console.log('Nav item found:', item.textContent);
         item.addEventListener('click', function () {
+            console.log('Nav item clicked:', this.textContent);
             document.querySelectorAll('.nav-item').forEach(navItem => navItem.classList.remove('active'));
             this.classList.add('active');
         });
     });
 
-    const filterBar = document.querySelector('.filter-bar');
-    if (filterBar) filterBar.appendChild(refreshProductsBtn);
+    // Append Refresh Button
+    const filterBar = document.querySelector('.filter-options');
+    if (filterBar) {
+        console.log('filterBar found, appending refresh button');
+        filterBar.appendChild(refreshProductsBtn);
+    } else {
+        console.error('filterBar not found (.filter-options)');
+    }
 }
 
-// Fetch products from backend
+// Fetch products
 function fetchProducts(category, search) {
-    let url = 'http://localhost:3000/api/products';
+    let url = `${API_BASE_URL}/api/products`;
     if (category !== 'all' || search) {
         url += '?';
         if (category !== 'all') url += `category=${category}`;
         if (search) url += `${category !== 'all' ? '&' : ''}search=${encodeURIComponent(search)}`;
     }
-    console.log('Fetching products from:', url); // Debug
+    console.log('Fetching products from:', url);
     return fetch(url, { credentials: 'include' })
         .then(response => {
-            console.log('Products response status:', response.status); // Debug
+            console.log('Products response status:', response.status);
             if (response.status === 401) {
                 throw new Error('Please login to view products');
             }
@@ -184,12 +346,12 @@ function fetchProducts(category, search) {
             return response.json();
         })
         .then(data => {
-            console.log('Fetched products:', data); // Debug
+            console.log('Fetched products:', data);
             renderProducts(data);
             return data;
         })
         .catch(error => {
-            console.error('Error fetching products:', error.message); // Debug
+            console.error('Error fetching products:', error.message);
             if (error.message.includes('Please login')) {
                 renderProducts(null);
             } else {
@@ -202,17 +364,21 @@ function fetchProducts(category, search) {
 
 // Render products
 function renderProducts(products) {
+    if (!productGrid) {
+        console.error('productGrid not found (.product-grid)');
+        return;
+    }
     productGrid.innerHTML = '';
     if (products === null) {
         productGrid.innerHTML = '<p class="empty-products-message">Please log in to view products.</p>';
         filterButtons.forEach(btn => btn.disabled = true);
-        productSearch.disabled = true;
-        refreshProductsBtn.disabled = true;
+        if (productSearch) productSearch.disabled = true;
+        if (refreshProductsBtn) refreshProductsBtn.disabled = true;
         return;
     }
     filterButtons.forEach(btn => btn.disabled = false);
-    productSearch.disabled = false;
-    refreshProductsBtn.disabled = false;
+    if (productSearch) productSearch.disabled = false;
+    if (refreshProductsBtn) refreshProductsBtn.disabled = false;
     if (!products || products.length === 0) {
         productGrid.innerHTML = '<p class="empty-products-message">No products found matching your criteria.</p>';
         return;
@@ -240,14 +406,30 @@ function renderProducts(products) {
             </div>
         `;
         productGrid.appendChild(productCard);
-        productCard.querySelector('.add-to-cart-btn').addEventListener('click', () => addToCart(product.product_id));
-        productCard.querySelector('.view-details-btn').addEventListener('click', () => showProductDetails(product.product_id));
+        const addToCartBtn = productCard.querySelector('.add-to-cart-btn');
+        if (addToCartBtn) {
+            addToCartBtn.addEventListener('click', () => {
+                console.log(`Add to cart clicked: ${product.product_id}`);
+                addToCart(product.product_id);
+            });
+        } else {
+            console.error('add-to-cart-btn not found in product card');
+        }
+        const viewDetailsBtn = productCard.querySelector('.view-details-btn');
+        if (viewDetailsBtn) {
+            viewDetailsBtn.addEventListener('click', () => {
+                console.log(`View details clicked: ${product.product_id}`);
+                showProductDetails(product.product_id);
+            });
+        } else {
+            console.error('view-details-btn not found in product card');
+        }
     });
 }
 
 // Add to cart
 function addToCart(productId) {
-    fetch(`http://localhost:3000/api/products/${productId}`, { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/products/${productId}`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) throw new Error('Product not found');
             return response.json();
@@ -275,26 +457,32 @@ function addToCart(productId) {
             showStatusMessage('Failed to add to cart. Please try again.', true);
             if (error.message.includes('Please login')) {
                 hideAllSections();
-                authSection.style.display = 'block';
-                loginContainer.style.display = 'block';
-                registerContainer.style.display = 'none';
+                if (authSection) authSection.style.display = 'block';
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (registerContainer) registerContainer.style.display = 'none';
             }
         });
 }
 
 // Update cart display
 function updateCartDisplay() {
-    cartCount.textContent = cart.reduce((total, item) => total + item.quantity, 0);
+    if (!cartCount) console.error('cartCount not found (.cart-count)');
+    else cartCount.textContent = cart.reduce((total, item) => total + item.quantity, 0);
+
+    if (!cartItems) {
+        console.error('cartItems not found (.cart-items)');
+        return;
+    }
     cartItems.innerHTML = '';
     if (cart.length === 0) {
         cartItems.innerHTML = '<div class="empty-cart-message">Your cart is empty. Start shopping now!</div>';
-        cartSubtotal.textContent = '₹0.00';
-        cartTotalAmount.textContent = '₹5.00';
+        if (cartSubtotal) cartSubtotal.textContent = '₹0.00';
+        if (cartTotalAmount) cartTotalAmount.textContent = '₹0.00';
         return;
     }
     let subtotal = 0;
     const promises = cart.map(item =>
-        fetch(`http://localhost:3000/api/products/${item.productId}`, { credentials: 'include' })
+        fetch(`${API_BASE_URL}/api/products/${item.productId}`, { credentials: 'include' })
             .then(response => {
                 if (!response.ok) throw new Error('Failed to fetch product');
                 return response.json();
@@ -338,14 +526,18 @@ function updateCartDisplay() {
                     </div>
                 `;
                 cartItems.appendChild(cartItemElement);
-                cartItemElement.querySelector('.decrease-btn').addEventListener('click', () => updateCartItemQuantity(item.productId, item.quantity - 1));
-                cartItemElement.querySelector('.increase-btn').addEventListener('click', () => updateCartItemQuantity(item.productId, item.quantity + 1));
-                cartItemElement.querySelector('.quantity-input').addEventListener('change', (e) => updateCartItemQuantity(item.productId, parseInt(e.target.value)));
-                cartItemElement.querySelector('.cart-item-remove').addEventListener('click', () => removeCartItem(item.productId));
+                const decreaseBtn = cartItemElement.querySelector('.decrease-btn');
+                if (decreaseBtn) decreaseBtn.addEventListener('click', () => updateCartItemQuantity(item.productId, item.quantity - 1));
+                const increaseBtn = cartItemElement.querySelector('.increase-btn');
+                if (increaseBtn) increaseBtn.addEventListener('click', () => updateCartItemQuantity(item.productId, item.quantity + 1));
+                const quantityInput = cartItemElement.querySelector('.quantity-input');
+                if (quantityInput) quantityInput.addEventListener('change', (e) => updateCartItemQuantity(item.productId, parseInt(e.target.value)));
+                const removeBtn = cartItemElement.querySelector('.cart-item-remove');
+                if (removeBtn) removeBtn.addEventListener('click', () => removeCartItem(item.productId));
             });
             const total = subtotal + 5;
-            cartSubtotal.textContent = `₹${subtotal.toFixed(2)}`;
-            cartTotalAmount.textContent = `₹${total.toFixed(2)}`;
+            if (cartSubtotal) cartSubtotal.textContent = `₹${subtotal.toFixed(2)}`;
+            if (cartTotalAmount) cartTotalAmount.textContent = `₹${total.toFixed(2)}`;
         })
         .catch(error => {
             console.error('Error updating cart:', error);
@@ -355,7 +547,7 @@ function updateCartDisplay() {
 
 // Update cart item quantity
 function updateCartItemQuantity(productId, newQuantity) {
-    fetch(`http://localhost:3000/api/products/${productId}`, { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/products/${productId}`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) throw new Error('Product not found');
             return response.json();
@@ -380,9 +572,9 @@ function updateCartItemQuantity(productId, newQuantity) {
             showStatusMessage('Failed to update quantity. Please try again.', true);
             if (error.message.includes('Please login')) {
                 hideAllSections();
-                authSection.style.display = 'block';
-                loginContainer.style.display = 'block';
-                registerContainer.style.display = 'none';
+                if (authSection) authSection.style.display = 'block';
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (registerContainer) registerContainer.style.display = 'none';
             }
         });
 }
@@ -402,7 +594,7 @@ function processCheckout() {
     }
     Promise.all(
         cart.map(item =>
-            fetch(`http://localhost:3000/api/products/${item.productId}`, { credentials: 'include' })
+            fetch(`${API_BASE_URL}/api/products/${item.productId}`, { credentials: 'include' })
                 .then(response => {
                     if (!response.ok) throw new Error('Product not found');
                     return response.json();
@@ -419,7 +611,7 @@ function processCheckout() {
             return Promise.all(
                 validItems.map(item => {
                     console.log(`Sending buy_product for product ${item.productId}, quantity ${item.quantity}`);
-                    return fetch('http://localhost:3000/api/buy_product', {
+                    return fetch(`${API_BASE_URL}/api/buy_product`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'include',
@@ -443,25 +635,25 @@ function processCheckout() {
             updateCartDisplay();
             showStatusMessage('Order placed successfully!');
             hideAllSections();
-            transactionsSection.style.display = 'block';
+            if (transactionsSection) transactionsSection.style.display = 'block';
             fetchTransactions();
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
         })
         .catch(error => {
             console.error('Checkout error:', error);
             showStatusMessage(error.message || 'Failed to process purchase. Please try again.', true);
             if (error.message.includes('Please login')) {
                 hideAllSections();
-                authSection.style.display = 'block';
-                loginContainer.style.display = 'block';
-                registerContainer.style.display = 'none';
+                if (authSection) authSection.style.display = 'block';
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (registerContainer) registerContainer.style.display = 'none';
             }
         });
 }
 
 // Fetch transactions
 function fetchTransactions() {
-    fetch('http://localhost:3000/api/transactions', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/transactions`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) throw new Error('Failed to fetch transactions');
             return response.json();
@@ -474,15 +666,19 @@ function fetchTransactions() {
             showStatusMessage('Failed to load transactions. Please try again.', true);
             if (error.message.includes('Please login')) {
                 hideAllSections();
-                authSection.style.display = 'block';
-                loginContainer.style.display = 'block';
-                registerContainer.style.display = 'none';
+                if (authSection) authSection.style.display = 'block';
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (registerContainer) registerContainer.style.display = 'none';
             }
         });
 }
 
 // Render transactions
 function renderTransactions(transactions) {
+    if (!transactionList) {
+        console.error('transactionList not found (.transaction-list)');
+        return;
+    }
     transactionList.innerHTML = '';
     if (transactions.length === 0) {
         transactionList.innerHTML = '<div class="empty-transactions-message">You haven\'t made any purchases yet.</div>';
@@ -530,7 +726,7 @@ function renderTransactions(transactions) {
 
 // Show product details
 function showProductDetails(productId) {
-    fetch(`http://localhost:3000/api/products/${productId}`, { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/products/${productId}`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) throw new Error('Product not found');
             return response.json();
@@ -564,8 +760,10 @@ function showProductDetails(productId) {
             modalOverlay.appendChild(modalContent);
             document.body.appendChild(modalOverlay);
             document.body.style.overflow = 'hidden';
-            modalOverlay.querySelector('.modal-close').addEventListener('click', closeModal);
-            modalOverlay.querySelector('.add-to-cart-modal-btn').addEventListener('click', () => {
+            const modalClose = modalOverlay.querySelector('.modal-close');
+            if (modalClose) modalClose.addEventListener('click', closeModal);
+            const addToCartModalBtn = modalOverlay.querySelector('.add-to-cart-modal-btn');
+            if (addToCartModalBtn) addToCartModalBtn.addEventListener('click', () => {
                 addToCart(product.product_id);
                 closeModal();
             });
@@ -582,9 +780,9 @@ function showProductDetails(productId) {
             showStatusMessage('Failed to load product details. Please try again.', true);
             if (error.message.includes('Please login')) {
                 hideAllSections();
-                authSection.style.display = 'block';
-                loginContainer.style.display = 'block';
-                registerContainer.style.display = 'none';
+                if (authSection) authSection.style.display = 'block';
+                if (loginContainer) loginContainer.style.display = 'block';
+                if (registerContainer) registerContainer.style.display = 'none';
             }
         });
 }
@@ -594,26 +792,26 @@ function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
-    fetch('http://localhost:3000/api/login', {
+    fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ username, password })
     })
         .then(response => {
-            console.log('Login response status:', response.status); // Debug
+            console.log('Login response status:', response.status);
             if (!response.ok) {
                 return response.json().then(err => Promise.reject(err.error));
             }
             return response.json();
         })
         .then(data => {
-            console.log('Login data:', data); // Debug
+            console.log('Login data:', data);
             updateUserInterface(data.user);
-            loginForm.reset();
+            if (loginForm) loginForm.reset();
             hideAllSections();
             showStatusMessage(`Welcome back, ${data.user.username}!`);
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
             startProductPolling();
         })
         .catch(error => {
@@ -629,26 +827,26 @@ function handleRegister(e) {
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
     const role = document.getElementById('register-role').value;
-    fetch('http://localhost:3000/api/register', {
+    fetch(`${API_BASE_URL}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ username, email, password, role })
     })
         .then(response => {
-            console.log('Register response status:', response.status); // Debug
+            console.log('Register response status:', response.status);
             if (!response.ok) {
                 return response.json().then(err => Promise.reject(err.error));
             }
             return response.json();
         })
         .then(data => {
-            console.log('Register data:', data); // Debug
+            console.log('Register data:', data);
             updateUserInterface(data.user);
-            registerForm.reset();
+            if (registerForm) registerForm.reset();
             hideAllSections();
             showStatusMessage('Registration successful!');
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
             startProductPolling();
         })
         .catch(error => {
@@ -659,12 +857,12 @@ function handleRegister(e) {
 
 // Handle logout
 function handleLogout() {
-    fetch('http://localhost:3000/api/logout', {
+    fetch(`${API_BASE_URL}/api/logout`, {
         method: 'POST',
         credentials: 'include'
     })
         .then(response => {
-            console.log('Logout response status:', response.status); // Debug
+            console.log('Logout response status:', response.status);
             if (!response.ok) throw new Error('Logout failed');
             return response.json();
         })
@@ -674,7 +872,7 @@ function handleLogout() {
             updateCartDisplay();
             hideAllSections();
             showStatusMessage('You have been logged out');
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
             stopProductPolling();
         })
         .catch(error => {
@@ -685,48 +883,48 @@ function handleLogout() {
 
 // Update UI based on user state
 function updateUserInterface(user) {
-    console.log('Updating UI for user:', user); // Debug
+    console.log('Updating UI for user:', user);
     if (user) {
-        loginNavBtn.style.display = 'none';
-        registerNavBtn.style.display = 'none';
-        logoutBtn.style.display = 'inline-block';
-        userInfo.style.display = 'inline-block';
-        usernameDisplay.textContent = user.username;
-        userRoleDisplay.textContent = `(${user.role})`;
-        addProductSection.style.display = user.role === 'farmer' ? 'block' : 'none';
+        if (loginNavBtn) loginNavBtn.style.display = 'none';
+        if (registerNavBtn) registerNavBtn.style.display = 'none';
+        if (logoutBtn) logoutBtn.style.display = 'inline-block';
+        if (userInfo) userInfo.style.display = 'inline-block';
+        if (usernameDisplay) usernameDisplay.textContent = user.username;
+        if (userRoleDisplay) userRoleDisplay.textContent = `(${user.role})`;
+        if (addProductSection) addProductSection.style.display = user.role === 'farmer' ? 'block' : 'none';
     } else {
-        loginNavBtn.style.display = 'inline-block';
-        registerNavBtn.style.display = 'inline-block';
-        logoutBtn.style.display = 'none';
-        userInfo.style.display = 'none';
-        addProductSection.style.display = 'none';
+        if (loginNavBtn) loginNavBtn.style.display = 'inline-block';
+        if (registerNavBtn) registerNavBtn.style.display = 'inline-block';
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        if (userInfo) userInfo.style.display = 'none';
+        if (addProductSection) addProductSection.style.display = 'none';
     }
 }
 
 // Check if user is logged in
 function checkUserLogin() {
-    fetch('http://localhost:3000/api/user', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/user`, { credentials: 'include' })
         .then(response => {
-            console.log('Check user response status:', response.status); // Debug
+            console.log('Check user response status:', response.status);
             if (!response.ok) throw new Error('Not logged in');
             return response.json();
         })
         .then(data => {
-            console.log('Check user data:', data); // Debug
+            console.log('Check user data:', data);
             if (data.loggedIn) {
                 updateUserInterface(data.user);
-                fetchProducts(currentFilter, productSearch.value);
+                fetchProducts(currentFilter, productSearch ? productSearch.value : '');
                 startProductPolling();
             } else {
                 updateUserInterface(null);
-                fetchProducts(currentFilter, productSearch.value);
+                fetchProducts(currentFilter, productSearch ? productSearch.value : '');
                 stopProductPolling();
             }
         })
         .catch(error => {
             console.error('Error checking user:', error);
             updateUserInterface(null);
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
             stopProductPolling();
         });
 }
@@ -749,23 +947,23 @@ function handleAddProduct(e) {
     if (imageUrl) {
         formData.append('image_url', imageUrl);
     }
-    fetch('http://localhost:3000/api/add_product', {
+    fetch(`${API_BASE_URL}/api/add_product`, {
         method: 'POST',
         credentials: 'include',
         body: formData
     })
         .then(response => {
-            console.log('Add product response status:', response.status); // Debug
+            console.log('Add product response status:', response.status);
             if (!response.ok) {
                 return response.json().then(err => Promise.reject(err.error));
             }
             return response.json();
         })
         .then(data => {
-            console.log('Add product data:', data); // Debug
-            addProductForm.reset();
+            console.log('Add product data:', data);
+            if (addProductForm) addProductForm.reset();
             showStatusMessage('Product added successfully!');
-            fetchProducts(currentFilter, productSearch.value);
+            fetchProducts(currentFilter, productSearch ? productSearch.value : '');
         })
         .catch(error => {
             console.error('Error adding product:', error);
@@ -781,21 +979,21 @@ function handleContactForm(e) {
         email: document.getElementById('contact-email').value,
         message: document.getElementById('contact-message').value
     };
-    fetch('http://localhost:3000/api/contact', {
+    fetch(`${API_BASE_URL}/api/contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(data)
     })
         .then(response => {
-            console.log('Contact form response status:', response.status); // Debug
+            console.log('Contact form response status:', response.status);
             if (!response.ok) {
                 return response.json().then(err => Promise.reject(err.error));
             }
             return response.json();
         })
         .then(() => {
-            contactForm.reset();
+            if (contactForm) contactForm.reset();
             showStatusMessage('Thank you for your message!');
         })
         .catch(error => {
@@ -808,21 +1006,21 @@ function handleContactForm(e) {
 function handleNewsletterSubscription(e) {
     e.preventDefault();
     const email = newsletterForm.querySelector('input[type="email"]').value;
-    fetch('http://localhost:3000/api/subscribe', {
+    fetch(`${API_BASE_URL}/api/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email })
     })
         .then(response => {
-            console.log('Newsletter response status:', response.status); // Debug
+            console.log('Newsletter response status:', response.status);
             if (!response.ok) {
                 return response.json().then(err => Promise.reject(err.error));
             }
             return response.json();
         })
         .then(() => {
-            newsletterForm.reset();
+            if (newsletterForm) newsletterForm.reset();
             showStatusMessage('Thank you for subscribing!');
         })
         .catch(error => {
@@ -839,7 +1037,7 @@ function toggleTheme() {
     if (icon) icon.className = document.body.classList.contains('dark-mode') ? 'fas fa-sun' : 'fas fa-moon';
 }
 
-// Load theme on page load
+// Load theme
 function loadTheme() {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
@@ -853,7 +1051,7 @@ function loadTheme() {
 function startProductPolling() {
     stopProductPolling();
     productPollingInterval = setInterval(() => {
-        fetchProducts(currentFilter, productSearch.value).catch(() => {
+        fetchProducts(currentFilter, productSearch ? productSearch.value : '').catch(() => {
             // Silent catch
         });
     }, 30000);
@@ -867,23 +1065,29 @@ function stopProductPolling() {
     }
 }
 
-// Utility: Capitalize first letter
+// Capitalize first letter
 function capitalizeFirstLetter(string) {
     return string.charAt(0).toUpperCase() + string.slice(1);
 }
 
-// Utility: Hide all sections
+// Hide all sections
 function hideAllSections() {
-    cartSection.style.display = 'none';
-    transactionsSection.style.display = 'none';
-    authSection.style.display = 'none';
-    addProductSection.style.display = document.querySelector('.user-info').style.display === 'inline-block' && document.querySelector('.user-role').textContent.includes('farmer') ? 'block' : 'none';
+    if (cartSection) cartSection.style.display = 'none';
+    if (transactionsSection) transactionsSection.style.display = 'none';
+    if (authSection) authSection.style.display = 'none';
+    if (addProductSection) {
+        addProductSection.style.display = userInfo && userInfo.style.display === 'inline-block' && userRoleDisplay && userRoleDisplay.textContent.includes('farmer') ? 'block' : 'none';
+    }
 }
 
-// Utility: Show status message
+// Show status message
 function showStatusMessage(message, isError = false) {
+    if (!statusMessage) {
+        console.error('statusMessage not found (.status-message)');
+        return;
+    }
     statusMessage.textContent = message;
-    statusMessage.className = `status-message ${isError ? 'error' : 'success'}`;
+    statusMessage.className = `status-message ${isError ? 'error' : ''}`;
     statusMessage.style.display = 'block';
     setTimeout(() => {
         statusMessage.style.display = 'none';
@@ -892,6 +1096,7 @@ function showStatusMessage(message, isError = false) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded');
     loadTheme();
     init();
 });

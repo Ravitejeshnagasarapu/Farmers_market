@@ -1,4 +1,4 @@
-// Required dependencies
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -6,72 +6,73 @@ const session = require('express-session');
 const cors = require('cors');
 const fs = require('fs');
 const mysql = require('mysql');
+const bcrypt = require('bcrypt');
 
-// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Database connection
-require('dotenv').config();
+// Database connection with retry logic for PlanetScale
 const db = mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     multipleStatements: true
 });
-app.use(session({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-        secure: process.env.NODE_ENV === 'production', // Secure cookies in production
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'lax'
-    }
-}));
+
+// Retry connection up to 3 times
+let connectionAttempts = 0;
+const maxRetries = 3;
+
+function connectToDatabase() {
+    db.connect((err) => {
+        if (err) {
+            console.error('Error connecting to MySQL:', err);
+            if (connectionAttempts < maxRetries) {
+                connectionAttempts++;
+                console.log(`Retrying connection (${connectionAttempts}/${maxRetries})...`);
+                setTimeout(connectToDatabase, 2000);
+            } else {
+                console.error('Max retries reached. Exiting.');
+                process.exit(1);
+            }
+            return;
+        }
+        console.log('Connected to MySQL');
+        initializeDatabase();
+    });
+}
+
+connectToDatabase();
 
 // Middleware
 app.use(cors({
-    origin: 'http://localhost:3000',
+    origin: process.env.NODE_ENV === 'production' ? 'https://farmers-market.onrender.com' : 'http://localhost:3000',
     credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
-app.use('/uploads', express.static('uploads'));
-
-// Session configuration
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/Uploads', express.static(path.join(__dirname, 'public', 'Uploads')));
 app.use(session({
-    secret: 'farmers_market_secret_key',
+    secret: process.env.SESSION_SECRET || 'fallback-secret-please-set-in-env', // Fallback for safety
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false, // Changed to false to avoid unnecessary sessions
     cookie: {
-        secure: false,
+        secure: process.env.NODE_ENV === 'production', // Secure cookies in production
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'lax'
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Adjust for cross-site requests
     }
 }));
 
-
-// Connect to MySQL and set up the database
-db.connect((err) => {
-    if (err) {
-        console.error('Error connecting to MySQL:', err);
-        process.exit(1);
-    }
-    console.log('Connected to MySQL');
-
-    // Create Database
+// Initialize database and tables
+function initializeDatabase() {
     db.query('CREATE DATABASE IF NOT EXISTS farmers_market', (err) => {
         if (err) {
             console.error('Error creating database:', err);
             process.exit(1);
         }
         console.log('Database checked/created');
-
-        // Use the database
         db.query('USE farmers_market', (err) => {
             if (err) {
                 console.error('Error selecting database:', err);
@@ -79,166 +80,151 @@ db.connect((err) => {
             }
             console.log('Using farmers_market database');
 
-            // Create tables
-            const createUsersTable = `
-                CREATE TABLE IF NOT EXISTS Users (
-                    user_id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) NOT NULL UNIQUE,
-                    email VARCHAR(255),
-                    password VARCHAR(255) NOT NULL,
-                    role ENUM('customer', 'farmer', 'admin') NOT NULL
-                )
-            `;
-
-            const createProductsTable = `
-                CREATE TABLE IF NOT EXISTS Products (
-                    product_id INT AUTO_INCREMENT PRIMARY KEY,
-                    farmer_id INT,
-                    product_name VARCHAR(255) NOT NULL,
-                    description TEXT,
-                    category VARCHAR(100),
-                    price DECIMAL(10, 2),
-                    stock_quantity INT,
-                    image_url VARCHAR(255),
-                    FOREIGN KEY (farmer_id) REFERENCES Users(user_id) ON DELETE CASCADE
-                )
-            `;
-
-            const createTransactionsTable = `
-                CREATE TABLE IF NOT EXISTS Transactions (
-                    transaction_id INT AUTO_INCREMENT PRIMARY KEY,
-                    buyer_id INT,
-                    transaction_date DATETIME,
-                    total_amount DECIMAL(10, 2),
-                    FOREIGN KEY (buyer_id) REFERENCES Users(user_id)
-                )
-            `;
-
-            const createTransactionItemsTable = `
-                CREATE TABLE IF NOT EXISTS Transaction_Items (
-                    item_id INT AUTO_INCREMENT PRIMARY KEY,
-                    transaction_id INT,
-                    product_id INT,
-                    quantity INT,
-                    price_per_unit DECIMAL(10, 2),
-                    FOREIGN KEY (transaction_id) REFERENCES Transactions(transaction_id),
-                    FOREIGN KEY (product_id) REFERENCES Products(product_id)
-                )
-            `;
-
-            const createContactTable = `
-                CREATE TABLE IF NOT EXISTS Contact_Submissions (
-                    submission_id INT AUTO_INCREMENT PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    email VARCHAR(255) NOT NULL,
-                    message TEXT NOT NULL,
-                    submission_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            `;
-
-            const createNewsletterTable = `
-                CREATE TABLE IF NOT EXISTS Newsletter_Subscriptions (
-                    subscription_id INT AUTO_INCREMENT PRIMARY KEY,
-                    email VARCHAR(255) NOT NULL UNIQUE,
-                    subscription_date DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            `;
-
-            const createActionLogTable = `
-                CREATE TABLE IF NOT EXISTS Action_Logs (
-                    log_id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT,
-                    action VARCHAR(255) NOT NULL,
-                    details TEXT,
-                    action_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES Users(user_id)
-                )
-            `;
-
-            // Execute table creation
-            db.query(createUsersTable, (err) => {
-                if (err) {
-                    console.error('Error creating Users table:', err);
-                    process.exit(1);
-                }
-                console.log('Users table ready');
-
-                // Add demo users
-                db.query('SELECT COUNT(*) as count FROM Users', (err, results) => {
-                    if (err) {
-                        console.error('Error checking Users table:', err);
-                        process.exit(1);
-                    }
-                    if (results[0].count === 0) {
-                        const demoUsers = [
-                            ['customer', 'customer@example.com', 'password123', 'customer'],
-                            ['farmer', 'farmer@example.com', 'password123', 'farmer']
-                        ];
-                        demoUsers.forEach(user => {
-                            db.query('INSERT INTO Users (username, email, password, role) VALUES (?, ?, ?, ?)', user, (err) => {
-                                if (err) console.error('Error adding demo user:', err);
-                                else console.log(`Demo user '${user[0]}' added`);
-                            });
+            // Create tables in order to respect foreign key dependencies
+            const tables = [
+                {
+                    name: 'Users',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Users (
+                            user_id INT AUTO_INCREMENT PRIMARY KEY,
+                            username VARCHAR(255) NOT NULL UNIQUE,
+                            email VARCHAR(255) NOT NULL UNIQUE,
+                            password VARCHAR(255) NOT NULL,
+                            role ENUM('customer', 'farmer', 'admin') NOT NULL DEFAULT 'customer'
+                        )
+                    `,
+                    seed: () => {
+                        db.query('SELECT COUNT(*) as count FROM Users', (err, results) => {
+                            if (err) {
+                                console.error('Error checking Users table:', err);
+                                return;
+                            }
+                            if (results[0].count === 0) {
+                                const demoUsers = [
+                                    ['customer', 'customer@example.com', bcrypt.hashSync('password123', 10), 'customer'],
+                                    ['farmer', 'farmer@example.com', bcrypt.hashSync('password123', 10), 'farmer']
+                                ];
+                                demoUsers.forEach(user => {
+                                    db.query('INSERT INTO Users (username, email, password, role) VALUES (?, ?, ?, ?)', user, (err) => {
+                                        if (err) console.error(`Error adding demo user ${user[0]}:`, err);
+                                        else console.log(`Demo user '${user[0]}' added`);
+                                    });
+                                });
+                            }
                         });
                     }
-                });
-            });
-
-            db.query(createProductsTable, (err) => {
-                if (err) {
-                    console.error('Error creating Products table:', err);
-                    process.exit(1);
+                },
+                {
+                    name: 'Products',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Products (
+                            product_id INT AUTO_INCREMENT PRIMARY KEY,
+                            farmer_id INT,
+                            product_name VARCHAR(255) NOT NULL,
+                            description TEXT,
+                            category VARCHAR(100),
+                            price DECIMAL(10, 2),
+                            stock_quantity INT,
+                            image_url VARCHAR(255),
+                            FOREIGN KEY (farmer_id) REFERENCES Users(user_id) ON DELETE CASCADE
+                        )
+                    `
+                },
+                {
+                    name: 'Transactions',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Transactions (
+                            transaction_id INT AUTO_INCREMENT PRIMARY KEY,
+                            buyer_id INT,
+                            transaction_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            total_amount DECIMAL(10, 2),
+                            FOREIGN KEY (buyer_id) REFERENCES Users(user_id)
+                        )
+                    `
+                },
+                {
+                    name: 'Transaction_Items',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Transaction_Items (
+                            item_id INT AUTO_INCREMENT PRIMARY KEY,
+                            transaction_id INT,
+                            product_id INT,
+                            quantity INT,
+                            price_per_unit DECIMAL(10, 2),
+                            FOREIGN KEY (transaction_id) REFERENCES Transactions(transaction_id),
+                            FOREIGN KEY (product_id) REFERENCES Products(product_id)
+                        )
+                    `
+                },
+                {
+                    name: 'Contact_Submissions',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Contact_Submissions (
+                            submission_id INT AUTO_INCREMENT PRIMARY KEY,
+                            name VARCHAR(255) NOT NULL,
+                            email VARCHAR(255) NOT NULL,
+                            message TEXT NOT NULL,
+                            submission_date DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `
+                },
+                {
+                    name: 'Newsletter_Subscriptions',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Newsletter_Subscriptions (
+                            subscription_id INT AUTO_INCREMENT PRIMARY KEY,
+                            email VARCHAR(255) NOT NULL UNIQUE,
+                            subscription_date DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `
+                },
+                {
+                    name: 'Action_Logs',
+                    query: `
+                        CREATE TABLE IF NOT EXISTS Action_Logs (
+                            log_id INT AUTO_INCREMENT PRIMARY KEY,
+                            user_id INT,
+                            action VARCHAR(255) NOT NULL,
+                            details TEXT,
+                            action_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES Users(user_id)
+                        )
+                    `
                 }
-                console.log('Products table ready');
-            });
+            ];
 
-            db.query(createTransactionsTable, (err) => {
-                if (err) {
-                    console.error('Error creating Transactions table:', err);
-                    process.exit(1);
+            // Create tables sequentially to avoid dependency issues
+            async function createTables() {
+                for (const table of tables) {
+                    try {
+                        db.query(table.query, (err) => {
+                            if (err) {
+                                console.error(`Error creating ${table.name} table:`, err);
+                                process.exit(1);
+                            }
+                            console.log(`${table.name} table ready`);
+                            if (table.seed) table.seed();
+                        });
+                    } catch (err) {
+                        console.error(`Error creating ${table.name} table:`, err);
+                        process.exit(1);
+                    }
                 }
-                console.log('Transactions table ready');
-            });
+            }
 
-            db.query(createTransactionItemsTable, (err) => {
-                if (err) {
-                    console.error('Error creating Transaction_Items table:', err);
-                    process.exit(1);
-                }
-                console.log('Transaction_Items table ready');
-            });
-
-            db.query(createContactTable, (err) => {
-                if (err) {
-                    console.error('Error creating Contact_Submissions table:', err);
-                    process.exit(1);
-                }
-                console.log('Contact_Submissions table ready');
-            });
-
-            db.query(createNewsletterTable, (err) => {
-                if (err) {
-                    console.error('Error creating Newsletter_Subscriptions table:', err);
-                    process.exit(1);
-                }
-                console.log('Newsletter_Subscriptions table ready');
-            });
-
-            db.query(createActionLogTable, (err) => {
-                if (err) {
-                    console.error('Error creating Action_Logs table:', err);
-                    process.exit(1);
-                }
-                console.log('Action_Logs table ready');
-            });
+            createTables();
         });
     });
-});
+}
 
-// Multer configuration
+// Multer setup for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'public/uploads/');
+        const uploadPath = path.join(__dirname, 'public', 'Uploads');
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -247,49 +233,40 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
-    storage,
+    storage: storage,
     fileFilter: (req, file, cb) => {
         const filetypes = /jpeg|jpg|png|svg/;
         const mimetype = filetypes.test(file.mimetype);
         const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-        if (mimetype && extname) {
-            return cb(null, true);
-        }
-        cb(new Error('Only image files are allowed!'));
-    }
+        if (mimetype && extname) return cb(null, true);
+        cb(new Error('Only image files (jpeg, jpg, png, svg) are allowed!'));
+    },
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
-
-// Ensure uploads directory exists
-if (!fs.existsSync('public/uploads')) {
-    fs.mkdirSync('public/uploads', { recursive: true });
-}
 
 // Authentication middleware
 function isAuthenticated(req, res, next) {
     if (req.session.user) {
-        next();
-    } else {
-        res.status(401).json({ error: 'Please login to continue' });
+        return next();
     }
+    res.status(401).json({ error: 'Please login to continue' });
 }
 
 function isFarmer(req, res, next) {
     if (req.session.user && req.session.user.role === 'farmer') {
-        next();
-    } else {
-        res.status(403).json({ error: 'Only farmers can perform this action' });
+        return next();
     }
+    res.status(403).json({ error: 'Only farmers can perform this action' });
 }
 
 function isCustomer(req, res, next) {
     if (req.session.user && req.session.user.role === 'customer') {
-        next();
-    } else {
-        res.status(403).json({ error: 'Only customers can perform this action' });
+        return next();
     }
+    res.status(403).json({ error: 'Only customers can perform this action' });
 }
 
-// Log user actions
+// Action logging
 function logUserAction(userId, action, details) {
     db.query(
         'INSERT INTO Action_Logs (user_id, action, details, action_date) VALUES (?, ?, ?, NOW())',
@@ -307,7 +284,7 @@ app.get('/', (req, res) => {
 
 app.get('/api/user', (req, res) => {
     if (req.session.user) {
-        const { password, ...user } = req.session.user;
+        const { password, ...user } = req.session.user; // Ensure password is not sent
         res.json({ loggedIn: true, user });
     } else {
         res.json({ loggedIn: false });
@@ -316,55 +293,86 @@ app.get('/api/user', (req, res) => {
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    console.log(`Login attempt for ${username}`);
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
+    console.log(`Login attempt for username: ${username}`);
     db.query(
-        'SELECT user_id, username, email, role FROM Users WHERE username = ? AND password = ?',
-        [username, password],
+        'SELECT * FROM Users WHERE username = ?',
+        [username],
         (err, users) => {
             if (err) {
-                console.error('Login error:', err);
+                console.error('Database error during login:', err);
                 return res.status(500).json({ error: 'Server error' });
             }
-            if (users.length > 0) {
-                req.session.user = users[0];
-                logUserAction(users[0].user_id, 'login', `User ${username} logged in`);
-                res.json({ success: true, user: users[0] });
-            } else {
-                res.status(401).json({ error: 'Invalid username or password' });
+            if (users.length === 0) {
+                console.log(`No user found for username: ${username}`);
+                return res.status(401).json({ error: 'Invalid username or password' });
             }
+            bcrypt.compare(password, users[0].password, (err, match) => {
+                if (err) {
+                    console.error('Bcrypt error during login:', err);
+                    return res.status(500).json({ error: 'Server error' });
+                }
+                if (!match) {
+                    console.log(`Password mismatch for username: ${username}`);
+                    return res.status(401).json({ error: 'Invalid username or password' });
+                }
+                req.session.user = {
+                    user_id: users[0].user_id,
+                    username: users[0].username,
+                    email: users[0].email,
+                    role: users[0].role
+                };
+                console.log(`Successful login for username: ${username}, role: ${users[0].role}`);
+                logUserAction(users[0].user_id, 'login', `User ${username} logged in`);
+                res.json({ success: true, user: req.session.user });
+            });
         }
     );
 });
 
 app.post('/api/register', (req, res) => {
     const { username, email, password, role } = req.body;
-    console.log(`Register attempt for ${username}`);
-    db.query('SELECT * FROM Users WHERE username = ?', [username], (err, existingUsers) => {
+    if (!username || !email || !password) {
+        return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+    console.log(`Register attempt for username: ${username}, role: ${role}`);
+    bcrypt.hash(password, 10, (err, hash) => {
         if (err) {
-            console.error('Error checking username:', err);
+            console.error('Error hashing password:', err);
             return res.status(500).json({ error: 'Failed to register' });
         }
-        if (existingUsers.length > 0) {
-            return res.status(409).json({ error: 'Username already exists' });
-        }
-        db.query(
-            'INSERT INTO Users (username, email, password, role) VALUES (?, ?, ?, ?)',
-            [username, email, password, role === 'farmer' ? 'farmer' : 'customer'],
-            (err, result) => {
-                if (err) {
-                    console.error('Registration error:', err);
-                    return res.status(500).json({ error: 'Failed to register' });
-                }
-                req.session.user = {
-                    user_id: result.insertId,
-                    username,
-                    email,
-                    role: role === 'farmer' ? 'farmer' : 'customer'
-                };
-                logUserAction(result.insertId, 'register', `User ${username} registered as ${role}`);
-                res.json({ success: true, user: req.session.user });
+        db.query('SELECT * FROM Users WHERE username = ? OR email = ?', [username, email], (err, existingUsers) => {
+            if (err) {
+                console.error('Error checking existing user:', err);
+                return res.status(500).json({ error: 'Failed to register' });
             }
-        );
+            if (existingUsers.length > 0) {
+                const conflict = existingUsers.find(user => user.username === username) ? 'Username' : 'Email';
+                console.log(`${conflict} already exists: ${username} or ${email}`);
+                return res.status(409).json({ error: `${conflict} already exists` });
+            }
+            db.query(
+                'INSERT INTO Users (username, email, password, role) VALUES (?, ?, ?, ?)',
+                [username, email, hash, role === 'farmer' ? 'farmer' : 'customer'],
+                (err, result) => {
+                    if (err) {
+                        console.error('Registration error:', err);
+                        return res.status(500).json({ error: 'Failed to register' });
+                    }
+                    req.session.user = {
+                        user_id: result.insertId,
+                        username,
+                        email,
+                        role: role === 'farmer' ? 'farmer' : 'customer'
+                    };
+                    console.log(`Successful registration for username: ${username}, role: ${role}`);
+                    logUserAction(result.insertId, 'register', `User ${username} registered as ${role}`);
+                    res.json({ success: true, user: req.session.user });
+                }
+            );
+        });
     });
 });
 
@@ -376,6 +384,7 @@ app.post('/api/logout', (req, res) => {
             console.error('Logout error:', err);
             return res.status(500).json({ error: 'Failed to logout' });
         }
+        console.log(`Successful logout for username: ${username || 'unknown'}`);
         if (userId) {
             logUserAction(userId, 'logout', `User ${username} logged out`);
         }
@@ -395,13 +404,13 @@ app.get('/api/products', isAuthenticated, (req, res) => {
         query += ' AND (product_name LIKE ? OR description LIKE ? OR category LIKE ?)';
         params.push(searchTerm, searchTerm, searchTerm);
     }
-    console.log('Executing products query:', query, 'with params:', params);
+    console.log('Products query:', query, 'Params:', params);
     db.query(query, params, (err, products) => {
         if (err) {
             console.error('Error fetching products:', err);
             return res.status(500).json({ error: 'Failed to fetch products' });
         }
-        console.log(`Returning ${products.length} products`);
+        console.log(`Fetched ${products.length} products`);
         res.json(products);
     });
 });
@@ -425,7 +434,10 @@ app.get('/api/products/:id', isAuthenticated, (req, res) => {
 app.post('/api/add_product', isAuthenticated, isFarmer, upload.single('image'), (req, res) => {
     try {
         const { product_name, description, category, price, stock_quantity } = req.body;
-        const imagePath = req.file ? `/uploads/${req.file.filename}` : (req.body.image_url || '/uploads/default-product.jpg');
+        if (!product_name || !category || !price || !stock_quantity) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+        const imagePath = req.file ? `/Uploads/${req.file.filename}` : (req.body.image_url || '/Uploads/default-product.jpg');
         console.log(`Adding product: ${product_name} by farmer ${req.session.user.user_id}`);
         db.query(
             'INSERT INTO Products (farmer_id, product_name, description, category, price, stock_quantity, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -435,6 +447,7 @@ app.post('/api/add_product', isAuthenticated, isFarmer, upload.single('image'), 
                     console.error('Error adding product:', err);
                     return res.status(500).json({ error: 'Failed to add product' });
                 }
+                console.log(`Added product ID: ${result.insertId}`);
                 logUserAction(req.session.user.user_id, 'add_product', `Added product: ${product_name}`);
                 db.query('SELECT * FROM Products WHERE product_id = ?', [result.insertId], (err, products) => {
                     if (err || products.length === 0) {
@@ -462,10 +475,11 @@ app.put('/api/products/:id', isAuthenticated, isFarmer, upload.single('image'), 
                     return res.status(500).json({ error: 'Server error' });
                 }
                 if (products.length === 0) {
+                    console.log(`Product ID ${productId} not found or no permission for farmer ${req.session.user.user_id}`);
                     return res.status(403).json({ error: 'Product not found or no permission' });
                 }
                 const { product_name, description, category, price, stock_quantity } = req.body;
-                const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+                const imagePath = req.file ? `/Uploads/${req.file.filename}` : null;
                 let updateQuery = 'UPDATE Products SET ';
                 const updateValues = [];
                 if (product_name) {
@@ -492,14 +506,19 @@ app.put('/api/products/:id', isAuthenticated, isFarmer, upload.single('image'), 
                     updateQuery += 'image_url = ?, ';
                     updateValues.push(imagePath);
                 }
+                if (updateValues.length === 0) {
+                    return res.status(400).json({ error: 'No fields to update' });
+                }
                 updateQuery = updateQuery.slice(0, -2);
                 updateQuery += ' WHERE product_id = ?';
                 updateValues.push(productId);
+                console.log(`Updating product ID: ${productId}`);
                 db.query(updateQuery, updateValues, (err) => {
                     if (err) {
                         console.error('Error updating product:', err);
                         return res.status(500).json({ error: 'Failed to update product' });
                     }
+                    console.log(`Updated product ID: ${productId}`);
                     logUserAction(req.session.user.user_id, 'update_product', `Updated product ID: ${productId}`);
                     db.query('SELECT * FROM Products WHERE product_id = ?', [productId], (err, products) => {
                         if (err || products.length === 0) {
@@ -528,13 +547,19 @@ app.delete('/api/products/:id', isAuthenticated, isFarmer, (req, res) => {
                     return res.status(500).json({ error: 'Server error' });
                 }
                 if (products.length === 0) {
+                    console.log(`Product ID ${productId} not found or no permission for farmer ${req.session.user.user_id}`);
                     return res.status(403).json({ error: 'Product not found or no permission' });
                 }
                 const imagePath = products[0].image_url;
-                if (imagePath && imagePath !== '/uploads/default-product.jpg' && imagePath.startsWith('/uploads/')) {
+                if (imagePath && imagePath !== '/Uploads/default-product.jpg' && imagePath.startsWith('/Uploads/')) {
                     const fullPath = path.join(__dirname, 'public', imagePath);
                     if (fs.existsSync(fullPath)) {
-                        fs.unlinkSync(fullPath);
+                        try {
+                            fs.unlinkSync(fullPath);
+                            console.log(`Deleted image: ${imagePath}`);
+                        } catch (err) {
+                            console.error(`Error deleting image ${imagePath}:`, err);
+                        }
                     }
                 }
                 db.query('DELETE FROM Products WHERE product_id = ?', [productId], (err) => {
@@ -542,6 +567,7 @@ app.delete('/api/products/:id', isAuthenticated, isFarmer, (req, res) => {
                         console.error('Error deleting product:', err);
                         return res.status(500).json({ error: 'Failed to delete product' });
                     }
+                    console.log(`Deleted product ID: ${productId}`);
                     logUserAction(req.session.user.user_id, 'delete_product', `Deleted product ID: ${productId}`);
                     res.json({ success: true });
                 });
@@ -560,7 +586,7 @@ app.post('/api/buy_product', isAuthenticated, isCustomer, (req, res) => {
         const productId = parseInt(product_id);
         const requestedQuantity = parseInt(quantity);
         if (isNaN(productId) || isNaN(requestedQuantity) || requestedQuantity <= 0) {
-            console.log('Invalid product_id or quantity');
+            console.log('Invalid product_id or quantity:', { product_id, quantity });
             return res.status(400).json({ error: 'Invalid product ID or quantity' });
         }
         db.query(
@@ -572,7 +598,7 @@ app.post('/api/buy_product', isAuthenticated, isCustomer, (req, res) => {
                     return res.status(500).json({ error: 'Server error' });
                 }
                 if (products.length === 0) {
-                    console.log(`Product ${productId} not found or insufficient stock`);
+                    console.log(`Product ${productId} not found or stock too low (requested: ${requestedQuantity})`);
                     return res.status(400).json({ error: 'Product not found or not enough stock' });
                 }
                 const product = products[0];
@@ -681,8 +707,10 @@ app.get('/api/transactions', isAuthenticated, (req, res) => {
             `;
             queryParams = [req.session.user.user_id];
         } else {
+            console.log(`Unauthorized role for transactions: ${req.session.user.role}`);
             return res.status(403).json({ error: 'Unauthorized role' });
         }
+        console.log(`Fetching transactions for user ID: ${req.session.user.user_id}, role: ${req.session.user.role}`);
         db.query(query, queryParams, (err, results) => {
             if (err) {
                 console.error('Error fetching transactions:', err);
@@ -708,6 +736,7 @@ app.get('/api/transactions', isAuthenticated, (req, res) => {
                 });
             });
             const transactions = Array.from(transactionMap.values());
+            console.log(`Fetched ${transactions.length} transactions`);
             res.json(transactions);
         });
     } catch (error) {
@@ -719,6 +748,7 @@ app.get('/api/transactions', isAuthenticated, (req, res) => {
 app.post('/api/contact', (req, res) => {
     const { name, email, message } = req.body;
     if (!name || !email || !message) {
+        console.log('Contact form missing fields:', { name, email, message });
         return res.status(400).json({ error: 'All fields are required' });
     }
     db.query(
@@ -729,6 +759,7 @@ app.post('/api/contact', (req, res) => {
                 console.error('Error storing contact submission:', err);
                 return res.status(500).json({ error: 'Failed to submit message' });
             }
+            console.log(`Contact submission stored: ${name}, ${email}`);
             if (req.session.user) {
                 logUserAction(req.session.user.user_id, 'contact_submission', `Submitted contact form: ${name}, ${email}`);
             }
@@ -740,6 +771,7 @@ app.post('/api/contact', (req, res) => {
 app.post('/api/subscribe', (req, res) => {
     const { email } = req.body;
     if (!email) {
+        console.log('Newsletter subscription missing email');
         return res.status(400).json({ error: 'Email is required' });
     }
     db.query(
@@ -748,11 +780,13 @@ app.post('/api/subscribe', (req, res) => {
         (err) => {
             if (err) {
                 if (err.code === 'ER_DUP_ENTRY') {
+                    console.log(`Email already subscribed: ${email}`);
                     return res.status(409).json({ error: 'Email already subscribed' });
                 }
                 console.error('Error storing newsletter subscription:', err);
                 return res.status(500).json({ error: 'Failed to subscribe' });
             }
+            console.log(`Newsletter subscription added: ${email}`);
             if (req.session.user) {
                 logUserAction(req.session.user.user_id, 'newsletter_subscription', `Subscribed to newsletter: ${email}`);
             }
@@ -761,10 +795,18 @@ app.post('/api/subscribe', (req, res) => {
     );
 });
 
+// Catch-all route for SPA
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 404 handler
 app.use((req, res) => {
+    console.log(`404: Endpoint not found: ${req.method} ${req.url}`);
     res.status(404).json({ error: 'Endpoint not found' });
 });
 
+// Error handler
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -773,5 +815,6 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Deployed website: http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Deployed website: ${process.env.NODE_ENV === 'production' ? 'https://farmers-market.onrender.com' : `http://localhost:${PORT}`}`);
 });
