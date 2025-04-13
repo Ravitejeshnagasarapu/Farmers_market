@@ -11,7 +11,7 @@ const bcrypt = require('bcrypt');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Database connection with retry logic for PlanetScale
+// Database connection with retry logic
 const db = mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
