@@ -1,7 +1,7 @@
 console.log('script.js loaded');
 
 // Set API base URL (true for local, false for production)
-const IS_LOCAL = true; // Change to false for Render deployment
+const IS_LOCAL = false; // Change to false for Render deployment
 const API_BASE_URL = IS_LOCAL ? 'http://localhost:3000' : 'https://farmers-market.onrender.com';
 
 // DOM Elements
