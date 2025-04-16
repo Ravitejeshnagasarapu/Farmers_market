@@ -156,5 +156,9 @@ An online platform connecting farmers and customers to sell and buy fresh, local
 5. Open a pull request.
 
 ##
- Built by **Nagasarapu Ravi Tejesh**
+ Built by **1. Srikala
+          2.Nithin Ramgopal
+          3.Ravi Tejesh
+          4.Durgalakshmi Prasad
+          5.Vamsi - Leader**
 ##
