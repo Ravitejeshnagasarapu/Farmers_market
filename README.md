@@ -156,7 +156,7 @@ An online platform connecting farmers and customers to sell and buy fresh, local
 5. Open a pull request.
 
 ##
- Built by
+ Built by **Team Firewall**
  - Srikala
  - Nithin Ramgopal
  - Ravi Tejesh
